@@ -346,7 +346,13 @@ def render_architecture():
     if os.path.exists(html_path):
         with open(html_path, "r", encoding="utf-8") as f:
             html_content = f.read()
-        st.html(html_content, height=2400, scrolling=True)
+        # Wrap in a scrollable container since st.html doesn't support scrolling param
+        scrollable_html = (
+            '<div style="width:100%;height:2400px;overflow-y:auto;">'
+            + html_content
+            + '</div>'
+        )
+        st.html(scrollable_html, height=2400)
     else:
         st.error("Architecture file not found. Ensure `architecture.html` is in the project directory.")
 
