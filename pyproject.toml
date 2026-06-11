@@ -1,0 +1,16 @@
+[project]
+name = "neobank-aria"
+version = "0.2.0"
+description = "NeoBank ARIA — Intentionally Vulnerable AI Banking Assistant (Gen Academy Security Workshop)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "streamlit>=1.38.0",
+    "langchain>=0.3.0",
+    "langchain-openai>=0.3.0",
+    "langchain-core>=0.3.0",
+    "python-dotenv>=1.0.0",
+]
+
+[dependency-groups]
+dev = []
