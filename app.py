@@ -339,58 +339,156 @@ def render_chat(conn):
 
 
 # ═══════════════════════════════════════════
-#  DARK MODE CSS WRAPPER
+#  HTML RENDERING WITH DARK MODE
 # ═══════════════════════════════════════════
 
-DARK_MODE_CSS = """
-<style>
-  @media (prefers-color-scheme: dark) {
-    body, html { background: #1e1e2e !important; color: #e0e0e0 !important; }
-    * { color: inherit !important; border-color: #444 !important; }
-    .cont, .card, div[class] {
-      background-color: #2a2a3e !important;
-      border-color: #444 !important;
-    }
-    .cr { background-color: #3d2020 !important; }
-    .cg { background-color: #1e3312 !important; }
-    .ca { background-color: #3d2e10 !important; }
-    .ci { background-color: #152940 !important; }
-    .cp { background-color: #2a2050 !important; }
-    .ct { background-color: #0e3028 !important; }
-    h1, h2, h3, h4, h5, h6, .st, .ph h1, .ph p, .ss, p, span, li, td, th, code, pre {
-      color: #e0e0e0 !important;
-    }
-    .lbl, .lr, .lg, .la, .li, .lp, .lt, .lx { color: #ccc !important; }
-    a { color: #7cb3ff !important; }
-    code, pre { background: #333 !important; }
-    .nav button { background: #333 !important; color: #ccc !important; }
-    .nav button.active { background: #1a3a5c !important; color: #7cb3ff !important; }
-    table { border-color: #555 !important; }
-    th, td { border-color: #555 !important; }
-    input, select, textarea { background: #333 !important; color: #e0e0e0 !important; }
+# Dark mode CSS injected into the HTML document (before </head>).
+# NOT wrapped in a <div> — preserves document structure and JavaScript.
+# Uses Streamlit-matching colors. Applied unconditionally (Streamlit defaults to dark).
+DARK_MODE_OVERRIDE = """
+<style id="streamlit-dark-mode">
+  /* ── Base ── */
+  html, body {
+    background: #0e1117 !important;
+    color: #e6e6e6 !important;
   }
+
+  /* ── Security guide: override CSS variables ── */
+  :root {
+    --bg: #161b22 !important;
+    --bg-secondary: #1c2333 !important;
+    --text: #e6e6e6 !important;
+    --text-secondary: #a0a0a0 !important;
+    --text-tertiary: #707070 !important;
+    --border: rgba(255,255,255,0.1) !important;
+    --border-strong: rgba(255,255,255,0.2) !important;
+    --red-bg: #2d1b1b !important;    --red-border: rgba(255,100,100,0.3) !important;   --red-text: #ff8a8a !important;
+    --green-bg: #1b2d1b !important;  --green-border: rgba(100,255,100,0.3) !important; --green-text: #8aff8a !important;
+    --amber-bg: #2d261b !important;  --amber-border: rgba(255,200,100,0.3) !important; --amber-text: #ffc878 !important;
+    --blue-bg: #1b222d !important;   --blue-border: rgba(100,160,255,0.3) !important;  --blue-text: #78b4ff !important;
+    --purple-bg: #231b2d !important; --purple-border: rgba(160,120,255,0.3) !important; --purple-text: #b49cff !important;
+    --teal-bg: #1b2d28 !important;   --teal-border: rgba(100,255,200,0.3) !important;  --teal-text: #78ffc8 !important;
+  }
+
+  /* ── Typography ── */
+  h1, h2, h3, h4, h5, h6 { color: #f0f0f0 !important; }
+  p, li, span, td, th, label, div { color: #e0e0e0 !important; }
+  a { color: #78b4ff !important; }
+
+  /* ── Containers & cards ── */
+  .cont { background: #161b22 !important; border-color: rgba(255,255,255,0.1) !important; }
+  .card { background: #1c2333 !important; border-color: rgba(255,255,255,0.1) !important; }
+
+  /* ── Colored cards (security guide) ── */
+  .cr { background: var(--red-bg) !important; border-color: var(--red-border) !important; }
+  .cg { background: var(--green-bg) !important; border-color: var(--green-border) !important; }
+  .ca { background: var(--amber-bg) !important; border-color: var(--amber-border) !important; }
+  .ci { background: var(--blue-bg) !important; border-color: var(--blue-border) !important; }
+  .cp { background: var(--purple-bg) !important; border-color: var(--purple-border) !important; }
+  .ct { background: var(--teal-bg) !important; border-color: var(--teal-border) !important; }
+
+  /* ── Labels ── */
+  .lr { color: var(--red-text) !important; }
+  .lg { color: var(--green-text) !important; }
+  .la { color: var(--amber-text) !important; }
+  .li { color: var(--blue-text) !important; }
+  .lp { color: var(--purple-text) !important; }
+  .lt { color: var(--teal-text) !important; }
+  .lx { color: var(--text-secondary) !important; }
+
+  /* ── Nav buttons (security guide tabs) ── */
+  .nav button {
+    background: #1c2333 !important;
+    color: #a0a0a0 !important;
+    border-color: rgba(255,255,255,0.15) !important;
+  }
+  .nav button:hover:not(.active) { background: #262d40 !important; }
+  .nav button.active {
+    background: #1b3a5c !important;
+    color: #78b4ff !important;
+    border-color: rgba(100,160,255,0.4) !important;
+  }
+
+  /* ── Code & pre ── */
+  code, pre, .code-block, [style*="font-family:'Courier"],
+  [style*="font-family:monospace"], [style*="Courier New"] {
+    background: #1a1f2e !important;
+    color: #c8d0e0 !important;
+    border-color: rgba(255,255,255,0.1) !important;
+  }
+
+  /* ── Tables ── */
+  table { border-color: rgba(255,255,255,0.15) !important; }
+  th {
+    background: #1c2333 !important;
+    color: #a0a0a0 !important;
+    border-color: rgba(255,255,255,0.15) !important;
+  }
+  td { border-color: rgba(255,255,255,0.1) !important; }
+  tr:nth-child(even) { background: rgba(255,255,255,0.02) !important; }
+
+  /* ── Inputs ── */
+  input, select, textarea {
+    background: #1a1f2e !important;
+    color: #e0e0e0 !important;
+    border-color: rgba(255,255,255,0.2) !important;
+  }
+
+  /* ── Buttons (action buttons in security guide) ── */
+  .abtn, button[class*="btn"] {
+    background: #1b3a5c !important;
+    color: #78b4ff !important;
+    border-color: rgba(100,160,255,0.3) !important;
+  }
+
+  /* ── Architecture HTML: override hardcoded white backgrounds ── */
+  [style*="background:#fff"], [style*="background: #fff"],
+  [style*="background:#fffbea"], [style*="background:#fff5f5"],
+  [style*="background:#fff8f8"], [style*="background:#fff0f0"] {
+    background: #1c2333 !important;
+  }
+
+  /* ── SVG (architecture diagram) ── */
+  svg text { fill: #e0e0e0 !important; }
+  svg rect[fill="#fff"], svg rect[fill="white"], svg rect[fill="#ffffff"] {
+    fill: #1c2333 !important;
+  }
+  svg rect[fill="#f8f8f4"], svg rect[fill="#f0ede8"] { fill: #161b22 !important; }
+  svg rect[stroke] { stroke: rgba(255,255,255,0.2) !important; }
+  svg line, svg path { stroke: #555 !important; }
+  svg polygon { fill: #555 !important; }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: #0e1117; }
+  ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
 </style>
 """
 
 
 def _render_html_page(filepath: str, title: str, caption: str):
-    """Render an HTML file with dark mode support."""
+    """
+    Render an HTML file inside st.html with dark mode CSS injected.
+    Injects CSS before </head> to preserve document structure and JavaScript.
+    """
     st.markdown(f"## {title}")
     st.caption(caption)
 
-    if os.path.exists(filepath):
-        with open(filepath, "r", encoding="utf-8") as f:
-            html_content = f.read()
-        wrapped = (
-            '<div style="width:100%;height:80vh;overflow-y:auto;border:1px solid #444;'
-            'border-radius:8px;padding:8px;">'
-            + DARK_MODE_CSS
-            + html_content
-            + '</div>'
-        )
-        st.html(wrapped)
-    else:
+    if not os.path.exists(filepath):
         st.error(f"File not found: `{os.path.basename(filepath)}`")
+        return
+
+    with open(filepath, "r", encoding="utf-8") as f:
+        html_content = f.read()
+
+    # Inject dark mode CSS before </head> (preserves document structure + JS)
+    if "</head>" in html_content:
+        html_content = html_content.replace("</head>", DARK_MODE_OVERRIDE + "</head>")
+    else:
+        # No <head> tag — prepend the style
+        html_content = DARK_MODE_OVERRIDE + html_content
+
+    st.html(html_content)
 
 
 # ═══════════════════════════════════════════
