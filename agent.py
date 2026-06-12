@@ -94,7 +94,7 @@ def build_tools(conn):
 def create_aria_agent(conn, user_id: str, account_tier: str, api_key: str):
     """Create ARIA agent components with the given OpenAI API key."""
     llm = ChatOpenAI(
-        model="gpt-4o-mini",
+        model="gpt-3.5-turbo",
         temperature=0.3,
         max_tokens=2048,
         api_key=api_key,
