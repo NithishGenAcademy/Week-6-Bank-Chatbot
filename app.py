@@ -1,6 +1,7 @@
 # app.py — NeoBank ARIA Workshop (Streamlit UI)
 
 import os
+import base64
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -32,8 +33,6 @@ st.markdown("""
         background: #f9f9f7; border: 1px solid #e5e5e0;
         border-radius: 10px; padding: 14px 16px; margin-bottom: 10px;
     }
-    .hint-card h4 { font-size: 14px; font-weight: 600; margin-bottom: 6px; color: #1a1a1a; }
-    .hint-card p { font-size: 12px; color: #666; margin-bottom: 6px; line-height: 1.5; }
     .badge-easy {
         display: inline-block; font-size: 10px; font-weight: 700;
         padding: 2px 8px; border-radius: 10px;
@@ -54,6 +53,8 @@ st.markdown("""
     }
     .chat-header h2 { font-size: 18px; font-weight: 700; color: #1a1a1a; margin: 0; }
     .chat-header p { font-size: 12px; color: #999; margin: 0; }
+    /* Full-width iframe for HTML pages */
+    .html-frame iframe { width: 100%; border: none; border-radius: 8px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -71,7 +72,7 @@ def init_db():
 
 
 # ═══════════════════════════════════════════
-#  ATTACK HINTS DATA
+#  ATTACK HINTS DATA (ordered by difficulty)
 # ═══════════════════════════════════════════
 
 ATTACK_HINTS = [
@@ -213,7 +214,7 @@ def render_sidebar():
                     "easy": "badge-easy", "medium": "badge-medium", "hard": "badge-hard",
                 }.get(attack["difficulty"], "badge-medium")
 
-                with st.expander(f"Level {attack['level']}: {attack['name']}", expanded=False):
+                with st.expander(attack["name"], expanded=False):
                     st.markdown(
                         f'<span class="{badge_class}">{attack["difficulty"]}</span>',
                         unsafe_allow_html=True,
@@ -274,12 +275,10 @@ def render_login(conn):
 
 def render_chat(conn):
     """Render the main chat interface."""
-    # Check for API key
     if not st.session_state.get("api_key"):
         st.warning("⬅️ Please enter your OpenAI API key in the sidebar to start chatting.")
         return
 
-    # ── Header ──
     st.markdown(
         f"""
         <div class="chat-header">
@@ -290,12 +289,10 @@ def render_chat(conn):
         unsafe_allow_html=True,
     )
 
-    # ── Chat history ──
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"], avatar="🤖" if msg["role"] == "assistant" else "👤"):
             st.markdown(msg["content"])
 
-    # ── Welcome message ──
     if not st.session_state.messages:
         welcome = (
             f"Hello {st.session_state.user_name}! 👋 I'm **ARIA**, your NeoBank AI assistant. "
@@ -306,7 +303,6 @@ def render_chat(conn):
         with st.chat_message("assistant", avatar="🤖"):
             st.markdown(welcome)
 
-    # ── User input ──
     if prompt := st.chat_input("Message ARIA..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user", avatar="👤"):
@@ -339,126 +335,97 @@ def render_chat(conn):
 
 
 # ═══════════════════════════════════════════
-#  HTML RENDERING WITH DARK MODE
+#  HTML DARK MODE — DIRECT COLOR REPLACEMENT
 # ═══════════════════════════════════════════
 
-# Dark mode CSS injected into the HTML document (before </head>).
-# NOT wrapped in a <div> — preserves document structure and JavaScript.
-# Uses Streamlit-matching colors. Applied unconditionally (Streamlit defaults to dark).
-DARK_MODE_OVERRIDE = """
-<style id="streamlit-dark-mode">
-  /* ── Base ── */
-  html, body {
-    background: #0e1117 !important;
-    color: #e6e6e6 !important;
-  }
+# Color map for architecture.html: replace light colors with dark equivalents.
+# This handles inline styles AND SVG fill/stroke attributes that CSS can't override.
+ARCH_COLOR_MAP = {
+    # Page / container backgrounds
+    "background:#f0ede8": "background:#0e1117",
+    "background:#fff":    "background:#0e1117",
+    "background: #fff":   "background: #0e1117",
+    "background:#f8f8f4": "background:#161b22",
+    "background:#fffbea": "background:#2a2210",
+    "background:#fff5f5": "background:#2a1515",
+    "background:#fff8f8": "background:#2a1515",
+    "background:#fff0f0": "background:#2a1515",
+    # Border colors
+    "border:1px solid #e5e5e0":  "border:1px solid #333",
+    "border:0.5px solid #e5e5e0":"border:0.5px solid #333",
+    "border-color:#fca5a5":      "border-color:#cc5555",
+    "border:1px solid #fca5a5":  "border:1px solid #cc5555",
+    # Text colors
+    'color:#444': 'color:#d0d0d0',
+    'color:#555': 'color:#bbb',
+    'color:#666': 'color:#aaa',
+    'color:#888': 'color:#999',
+    'color:#1a1a1a': 'color:#f0f0f0',
+    # SVG fills — text
+    'fill="#444"':    'fill="#e0e0e0"',
+    'fill="#555"':    'fill="#c0c0c0"',
+    'fill="#888"':    'fill="#a0a0a0"',
+    'fill="#1a4a2e"': 'fill="#7cd07c"',
+    'fill="#3a7a54"': 'fill="#60c060"',
+    'fill="#3b1a8f"': 'fill="#b49cff"',
+    'fill="#6d4bc7"': 'fill="#c8a0ff"',
+    'fill="#92400e"': 'fill="#ffb060"',
+    'fill="#b45309"': 'fill="#ffa030"',
+    'fill="#b91c1c"': 'fill="#ff7070"',
+    # SVG fills — backgrounds
+    'fill="#f4f4f0"': 'fill="#1c2333"',
+    'fill="#fff5f5"': 'fill="#2a1515"',
+    'fill="#e8f5ee"': 'fill="#152215"',
+    'fill="#ede9fe"': 'fill="#1e1530"',
+    'fill="#fef3e0"': 'fill="#2a2210"',
+    'fill="#fff"':    'fill="#0e1117"',
+    'fill="white"':   'fill="#0e1117"',
+    # SVG strokes
+    'stroke="#bbb"':    'stroke="#555"',
+    'stroke="#ddd"':    'stroke="#444"',
+    'stroke="#aaa"':    'stroke="#555"',
+    'stroke="#888"':    'stroke="#666"',
+    'stroke="#e5e5e0"': 'stroke="#333"',
+}
 
-  /* ── Security guide: override CSS variables ── */
+# CSS variables override for security_guide.html
+SECURITY_GUIDE_DARK_CSS = """
+<style>
   :root {
-    --bg: #161b22 !important;
-    --bg-secondary: #1c2333 !important;
+    --bg: #0e1117 !important;
+    --bg-secondary: #161b22 !important;
     --text: #e6e6e6 !important;
     --text-secondary: #a0a0a0 !important;
     --text-tertiary: #707070 !important;
-    --border: rgba(255,255,255,0.1) !important;
-    --border-strong: rgba(255,255,255,0.2) !important;
-    --red-bg: #2d1b1b !important;    --red-border: rgba(255,100,100,0.3) !important;   --red-text: #ff8a8a !important;
-    --green-bg: #1b2d1b !important;  --green-border: rgba(100,255,100,0.3) !important; --green-text: #8aff8a !important;
-    --amber-bg: #2d261b !important;  --amber-border: rgba(255,200,100,0.3) !important; --amber-text: #ffc878 !important;
-    --blue-bg: #1b222d !important;   --blue-border: rgba(100,160,255,0.3) !important;  --blue-text: #78b4ff !important;
-    --purple-bg: #231b2d !important; --purple-border: rgba(160,120,255,0.3) !important; --purple-text: #b49cff !important;
-    --teal-bg: #1b2d28 !important;   --teal-border: rgba(100,255,200,0.3) !important;  --teal-text: #78ffc8 !important;
+    --border: rgba(255,255,255,0.12) !important;
+    --border-strong: rgba(255,255,255,0.22) !important;
+    --red-bg: #2a1515 !important;    --red-border: rgba(255,100,100,0.3) !important;   --red-text: #ff8a8a !important;
+    --green-bg: #152215 !important;  --green-border: rgba(100,220,100,0.3) !important; --green-text: #7cd07c !important;
+    --amber-bg: #2a2210 !important;  --amber-border: rgba(255,200,100,0.3) !important; --amber-text: #ffc878 !important;
+    --blue-bg: #151e2a !important;   --blue-border: rgba(100,160,255,0.3) !important;  --blue-text: #78b4ff !important;
+    --purple-bg: #1e1530 !important; --purple-border: rgba(160,120,255,0.3) !important; --purple-text: #b49cff !important;
+    --teal-bg: #152a22 !important;   --teal-border: rgba(100,255,200,0.3) !important;  --teal-text: #78ffc8 !important;
   }
-
-  /* ── Typography ── */
-  h1, h2, h3, h4, h5, h6 { color: #f0f0f0 !important; }
-  p, li, span, td, th, label, div { color: #e0e0e0 !important; }
-  a { color: #78b4ff !important; }
-
-  /* ── Containers & cards ── */
-  .cont { background: #161b22 !important; border-color: rgba(255,255,255,0.1) !important; }
-  .card { background: #1c2333 !important; border-color: rgba(255,255,255,0.1) !important; }
-
-  /* ── Colored cards (security guide) ── */
-  .cr { background: var(--red-bg) !important; border-color: var(--red-border) !important; }
-  .cg { background: var(--green-bg) !important; border-color: var(--green-border) !important; }
-  .ca { background: var(--amber-bg) !important; border-color: var(--amber-border) !important; }
-  .ci { background: var(--blue-bg) !important; border-color: var(--blue-border) !important; }
-  .cp { background: var(--purple-bg) !important; border-color: var(--purple-border) !important; }
-  .ct { background: var(--teal-bg) !important; border-color: var(--teal-border) !important; }
-
-  /* ── Labels ── */
-  .lr { color: var(--red-text) !important; }
-  .lg { color: var(--green-text) !important; }
-  .la { color: var(--amber-text) !important; }
-  .li { color: var(--blue-text) !important; }
-  .lp { color: var(--purple-text) !important; }
-  .lt { color: var(--teal-text) !important; }
-  .lx { color: var(--text-secondary) !important; }
-
-  /* ── Nav buttons (security guide tabs) ── */
+  body { background: #0e1117 !important; }
+  .cont { background: #161b22 !important; }
   .nav button {
-    background: #1c2333 !important;
-    color: #a0a0a0 !important;
+    background: #1c2333 !important; color: #a0a0a0 !important;
     border-color: rgba(255,255,255,0.15) !important;
   }
   .nav button:hover:not(.active) { background: #262d40 !important; }
   .nav button.active {
-    background: #1b3a5c !important;
-    color: #78b4ff !important;
+    background: #1b3a5c !important; color: #78b4ff !important;
     border-color: rgba(100,160,255,0.4) !important;
   }
-
-  /* ── Code & pre ── */
-  code, pre, .code-block, [style*="font-family:'Courier"],
-  [style*="font-family:monospace"], [style*="Courier New"] {
-    background: #1a1f2e !important;
-    color: #c8d0e0 !important;
-    border-color: rgba(255,255,255,0.1) !important;
-  }
-
-  /* ── Tables ── */
+  code, pre { background: #1a1f2e !important; color: #c8d0e0 !important; }
   table { border-color: rgba(255,255,255,0.15) !important; }
-  th {
-    background: #1c2333 !important;
-    color: #a0a0a0 !important;
-    border-color: rgba(255,255,255,0.15) !important;
-  }
+  th { background: #1c2333 !important; color: #a0a0a0 !important; }
   td { border-color: rgba(255,255,255,0.1) !important; }
-  tr:nth-child(even) { background: rgba(255,255,255,0.02) !important; }
-
-  /* ── Inputs ── */
   input, select, textarea {
-    background: #1a1f2e !important;
-    color: #e0e0e0 !important;
+    background: #1a1f2e !important; color: #e0e0e0 !important;
     border-color: rgba(255,255,255,0.2) !important;
   }
-
-  /* ── Buttons (action buttons in security guide) ── */
-  .abtn, button[class*="btn"] {
-    background: #1b3a5c !important;
-    color: #78b4ff !important;
-    border-color: rgba(100,160,255,0.3) !important;
-  }
-
-  /* ── Architecture HTML: override hardcoded white backgrounds ── */
-  [style*="background:#fff"], [style*="background: #fff"],
-  [style*="background:#fffbea"], [style*="background:#fff5f5"],
-  [style*="background:#fff8f8"], [style*="background:#fff0f0"] {
-    background: #1c2333 !important;
-  }
-
-  /* ── SVG (architecture diagram) ── */
-  svg text { fill: #e0e0e0 !important; }
-  svg rect[fill="#fff"], svg rect[fill="white"], svg rect[fill="#ffffff"] {
-    fill: #1c2333 !important;
-  }
-  svg rect[fill="#f8f8f4"], svg rect[fill="#f0ede8"] { fill: #161b22 !important; }
-  svg rect[stroke] { stroke: rgba(255,255,255,0.2) !important; }
-  svg line, svg path { stroke: #555 !important; }
-  svg polygon { fill: #555 !important; }
-
-  /* ── Scrollbar ── */
+  .abtn { background: #1b3a5c !important; color: #78b4ff !important; border-color: rgba(100,160,255,0.3) !important; }
   ::-webkit-scrollbar { width: 8px; }
   ::-webkit-scrollbar-track { background: #0e1117; }
   ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
@@ -466,29 +433,36 @@ DARK_MODE_OVERRIDE = """
 """
 
 
-def _render_html_page(filepath: str, title: str, caption: str):
-    """
-    Render an HTML file inside st.html with dark mode CSS injected.
-    Injects CSS before </head> to preserve document structure and JavaScript.
-    """
-    st.markdown(f"## {title}")
-    st.caption(caption)
+def _apply_arch_dark_mode(html: str) -> str:
+    """Apply dark mode to architecture.html via direct color replacement."""
+    for old, new in ARCH_COLOR_MAP.items():
+        html = html.replace(old, new)
+    return html
 
-    if not os.path.exists(filepath):
-        st.error(f"File not found: `{os.path.basename(filepath)}`")
-        return
 
-    with open(filepath, "r", encoding="utf-8") as f:
-        html_content = f.read()
-
-    # Inject dark mode CSS before </head> (preserves document structure + JS)
-    if "</head>" in html_content:
-        html_content = html_content.replace("</head>", DARK_MODE_OVERRIDE + "</head>")
+def _apply_guide_dark_mode(html: str) -> str:
+    """Apply dark mode to security_guide.html via CSS variable override."""
+    if "</head>" in html:
+        html = html.replace("</head>", SECURITY_GUIDE_DARK_CSS + "</head>")
     else:
-        # No <head> tag — prepend the style
-        html_content = DARK_MODE_OVERRIDE + html_content
+        html = SECURITY_GUIDE_DARK_CSS + html
+    return html
 
-    st.html(html_content)
+
+def _render_as_iframe(html_content: str, height: int = 800):
+    """
+    Render HTML as a data-URI iframe via st.markdown.
+    This preserves full JavaScript support (st.html strips scripts).
+    """
+    b64 = base64.b64encode(html_content.encode("utf-8")).decode("utf-8")
+    st.markdown(
+        f'<div class="html-frame">'
+        f'<iframe src="data:text/html;base64,{b64}" '
+        f'height="{height}" style="width:100%;border:none;border-radius:8px;" '
+        f'sandbox="allow-scripts allow-same-origin"></iframe>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
 
 # ═══════════════════════════════════════════
@@ -497,12 +471,19 @@ def _render_html_page(filepath: str, title: str, caption: str):
 
 def render_architecture():
     """Render the architecture reference page."""
+    st.markdown("## 🏗️ Architecture & Reference")
+    st.caption("Review the agent architecture, tools, knowledge base structure, and attack surface before attempting objectives.")
+
     html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "architecture.html")
-    _render_html_page(
-        html_path,
-        "🏗️ Architecture & Reference",
-        "Review the agent architecture, tools, knowledge base structure, and attack surface before attempting objectives.",
-    )
+    if not os.path.exists(html_path):
+        st.error("File not found: `architecture.html`")
+        return
+
+    with open(html_path, "r", encoding="utf-8") as f:
+        html_content = f.read()
+
+    html_content = _apply_arch_dark_mode(html_content)
+    _render_as_iframe(html_content, height=900)
 
 
 # ═══════════════════════════════════════════
@@ -510,13 +491,20 @@ def render_architecture():
 # ═══════════════════════════════════════════
 
 def render_security_guide():
-    """Render the AI agent security guide."""
+    """Render the AI agent security guide (with working JavaScript tabs)."""
+    st.markdown("## 📖 AI Agent Security Guide")
+    st.caption("Learn about common AI agent vulnerabilities, attack techniques, and defense strategies.")
+
     html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "security_guide.html")
-    _render_html_page(
-        html_path,
-        "📖 AI Agent Security Guide",
-        "Learn about common AI agent vulnerabilities, attack techniques, and defense strategies.",
-    )
+    if not os.path.exists(html_path):
+        st.error("File not found: `security_guide.html`")
+        return
+
+    with open(html_path, "r", encoding="utf-8") as f:
+        html_content = f.read()
+
+    html_content = _apply_guide_dark_mode(html_content)
+    _render_as_iframe(html_content, height=900)
 
 
 # ═══════════════════════════════════════════
@@ -524,13 +512,9 @@ def render_security_guide():
 # ═══════════════════════════════════════════
 
 def main():
-    # Init DB
     conn = init_db()
-
-    # Render sidebar (always)
     render_sidebar()
 
-    # Route based on navigation
     page = st.session_state.get("page", "💬 Chat with ARIA")
 
     if "Chat" in page:
