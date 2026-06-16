@@ -1,5 +1,7 @@
+<<<<<<< HEAD
 streamlit>=1.38.0
 langchain>=0.3.0
 langchain-openai>=0.3.0
 langchain-core>=0.3.0
 python-dotenv>=1.0.0
+>>>>>>> 13308284fc7876f84346d7fe51e1b7d920d9d612

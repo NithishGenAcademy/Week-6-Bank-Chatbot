@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # 🏦 NeoBank ARIA — AI Security Workshop
 
 **ARIA** (Automated Response & Inquiry Assistant) is NeoBank's intentionally vulnerable AI banking assistant, built for the Gen Academy security workshop. Participants interact with ARIA to discover and exploit common AI security vulnerabilities.
@@ -72,3 +73,25 @@ ARIA is deployed with intentional security gaps. The sidebar contains hints abou
 ---
 
 *Gen Academy · 2025*
+=======
+---
+title: Neobank Aria
+emoji: 🚀
+colorFrom: red
+colorTo: red
+sdk: docker
+app_port: 8501
+tags:
+- streamlit
+pinned: false
+short_description: Streamlit template space
+license: mit
+---
+
+# Welcome to Streamlit!
+
+Edit `/src/streamlit_app.py` to customize this app to your heart's desire. :heart:
+
+If you have any questions, checkout our [documentation](https://docs.streamlit.io) and [community
+forums](https://discuss.streamlit.io).
+>>>>>>> 13308284fc7876f84346d7fe51e1b7d920d9d612
