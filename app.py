@@ -1,4 +1,5 @@
 # app.py — NeoBank ARIA Workshop (Streamlit UI)
+# (name-only login · styled sidebar nav · native dark architecture/guide)
 
 import os
 import base64
@@ -7,7 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from database import get_connection, init_database, authenticate_user
+from database import get_connection, init_database, authenticate_by_name
 from agent import create_aria_agent, invoke_agent
 
 # ── Page config ──
@@ -55,6 +56,45 @@ st.markdown("""
     .chat-header p { font-size: 12px; color: #999; margin: 0; }
     /* Full-width iframe for HTML pages */
     .html-frame iframe { width: 100%; border: none; border-radius: 8px; }
+
+    /* ── Sidebar navigation buttons ── */
+    .nav-label {
+        font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+        text-transform: uppercase; color: #8b93a7; margin: 2px 0 8px 2px;
+    }
+    /* Make the nav buttons read like a menu: left-aligned, roomy, rounded */
+    section[data-testid="stSidebar"] div[data-testid="stButton"] > button {
+        text-align: left;
+        justify-content: flex-start;
+        font-weight: 600;
+        border-radius: 10px;
+        padding: 0.55rem 0.85rem;
+        transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stButton"] > button p {
+        text-align: left; width: 100%;
+    }
+    /* Inactive nav item: subtle, blends with sidebar */
+    section[data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="secondary"] {
+        background: transparent;
+        border: 1px solid transparent;
+        color: #c9d1e0;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="secondary"]:hover {
+        background: rgba(255,255,255,0.06);
+        border-color: rgba(255,255,255,0.12);
+        color: #ffffff;
+    }
+    /* Active nav item: highlighted accent */
+    section[data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="primary"] {
+        background: rgba(96,165,250,0.16);
+        border: 1px solid rgba(96,165,250,0.45);
+        color: #93c5fd;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="primary"]:hover {
+        background: rgba(96,165,250,0.24);
+        color: #bfdbfe;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -177,12 +217,28 @@ def render_sidebar():
         st.divider()
 
         # ── Navigation ──
-        page = st.radio(
-            "Navigate",
-            ["💬 Chat with ARIA", "🏗️ Architecture", "📖 Security Guide"],
-            label_visibility="collapsed",
-        )
-        st.session_state.page = page
+        st.markdown('<div class="nav-label">Navigate</div>', unsafe_allow_html=True)
+
+        nav_items = [
+            "💬 Chat with ARIA",
+            "🏗️ Architecture",
+            "📖 Security Guide",
+        ]
+        if "page" not in st.session_state:
+            st.session_state.page = nav_items[0]
+
+        for item in nav_items:
+            is_active = st.session_state.page == item
+            if st.button(
+                item,
+                key=f"nav_{item}",
+                use_container_width=True,
+                type="primary" if is_active else "secondary",
+            ):
+                st.session_state.page = item
+                st.rerun()
+
+        page = st.session_state.page
 
         st.divider()
 
@@ -244,14 +300,15 @@ def render_login(conn):
     with col2:
         with st.form("login_form"):
             name = st.text_input("Full Name", placeholder="e.g. Alex Mercer")
-            user_id = st.text_input("User ID", placeholder="e.g. USR-0042")
             submitted = st.form_submit_button("Sign In", use_container_width=True)
 
             if submitted:
-                if not name or not user_id:
-                    st.error("Please enter both your name and user ID.")
+                if not name:
+                    st.error("Please enter your name to sign in.")
                 else:
-                    customer = authenticate_user(conn, user_id.strip(), name.strip())
+                    # Name-only login: the user ID and tier are fetched from the
+                    # database behind the scenes and fed into ARIA's system prompt.
+                    customer = authenticate_by_name(conn, name.strip())
                     if customer:
                         st.session_state.logged_in = True
                         st.session_state.user_name = customer["name"]
@@ -260,7 +317,7 @@ def render_login(conn):
                         st.session_state.messages = []
                         st.rerun()
                     else:
-                        st.error("Invalid credentials. Please check your name and user ID.")
+                        st.error("We couldn't find an account with that name. Please check the spelling and try again.")
 
         st.markdown(
             '<p style="text-align:center; font-size:11px; color:#bbb; margin-top:1rem;">'
@@ -335,58 +392,11 @@ def render_chat(conn):
 
 
 # ═══════════════════════════════════════════
-#  HTML DARK MODE — DIRECT COLOR REPLACEMENT
+#  HTML DARK MODE
 # ═══════════════════════════════════════════
-
-# Color map for architecture.html: replace light colors with dark equivalents.
-# This handles inline styles AND SVG fill/stroke attributes that CSS can't override.
-ARCH_COLOR_MAP = {
-    # Page / container backgrounds
-    "background:#f0ede8": "background:#0e1117",
-    "background:#fff":    "background:#0e1117",
-    "background: #fff":   "background: #0e1117",
-    "background:#f8f8f4": "background:#161b22",
-    "background:#fffbea": "background:#2a2210",
-    "background:#fff5f5": "background:#2a1515",
-    "background:#fff8f8": "background:#2a1515",
-    "background:#fff0f0": "background:#2a1515",
-    # Border colors
-    "border:1px solid #e5e5e0":  "border:1px solid #333",
-    "border:0.5px solid #e5e5e0":"border:0.5px solid #333",
-    "border-color:#fca5a5":      "border-color:#cc5555",
-    "border:1px solid #fca5a5":  "border:1px solid #cc5555",
-    # Text colors
-    'color:#444': 'color:#d0d0d0',
-    'color:#555': 'color:#bbb',
-    'color:#666': 'color:#aaa',
-    'color:#888': 'color:#999',
-    'color:#1a1a1a': 'color:#f0f0f0',
-    # SVG fills — text
-    'fill="#444"':    'fill="#e0e0e0"',
-    'fill="#555"':    'fill="#c0c0c0"',
-    'fill="#888"':    'fill="#a0a0a0"',
-    'fill="#1a4a2e"': 'fill="#7cd07c"',
-    'fill="#3a7a54"': 'fill="#60c060"',
-    'fill="#3b1a8f"': 'fill="#b49cff"',
-    'fill="#6d4bc7"': 'fill="#c8a0ff"',
-    'fill="#92400e"': 'fill="#ffb060"',
-    'fill="#b45309"': 'fill="#ffa030"',
-    'fill="#b91c1c"': 'fill="#ff7070"',
-    # SVG fills — backgrounds
-    'fill="#f4f4f0"': 'fill="#1c2333"',
-    'fill="#fff5f5"': 'fill="#2a1515"',
-    'fill="#e8f5ee"': 'fill="#152215"',
-    'fill="#ede9fe"': 'fill="#1e1530"',
-    'fill="#fef3e0"': 'fill="#2a2210"',
-    'fill="#fff"':    'fill="#0e1117"',
-    'fill="white"':   'fill="#0e1117"',
-    # SVG strokes
-    'stroke="#bbb"':    'stroke="#555"',
-    'stroke="#ddd"':    'stroke="#444"',
-    'stroke="#aaa"':    'stroke="#555"',
-    'stroke="#888"':    'stroke="#666"',
-    'stroke="#e5e5e0"': 'stroke="#333"',
-}
+# architecture.html is now natively dark-themed, so no runtime color
+# replacement is needed. security_guide.html still uses CSS variables that
+# we override below for a consistent dark appearance.
 
 # CSS variables override for security_guide.html
 SECURITY_GUIDE_DARK_CSS = """
@@ -433,13 +443,6 @@ SECURITY_GUIDE_DARK_CSS = """
 """
 
 
-def _apply_arch_dark_mode(html: str) -> str:
-    """Apply dark mode to architecture.html via direct color replacement."""
-    for old, new in ARCH_COLOR_MAP.items():
-        html = html.replace(old, new)
-    return html
-
-
 def _apply_guide_dark_mode(html: str) -> str:
     """Apply dark mode to security_guide.html via CSS variable override."""
     if "</head>" in html:
@@ -482,7 +485,7 @@ def render_architecture():
     with open(html_path, "r", encoding="utf-8") as f:
         html_content = f.read()
 
-    html_content = _apply_arch_dark_mode(html_content)
+    # architecture.html is natively dark-themed — render as-is.
     _render_as_iframe(html_content, height=900)
 
 

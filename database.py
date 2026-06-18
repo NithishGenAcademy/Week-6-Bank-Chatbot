@@ -124,6 +124,24 @@ def authenticate_user(conn: sqlite3.Connection, user_id: str, name: str) -> dict
     return d
 
 
+def authenticate_by_name(conn: sqlite3.Connection, name: str) -> dict | None:
+    """Authenticate a user by name only (case-insensitive).
+
+    The user_id and tier are looked up from the database and returned, so the
+    login form only needs to ask for the customer's name. No schema change —
+    the underlying records are unchanged.
+    """
+    row = conn.execute(
+        "SELECT * FROM customers WHERE LOWER(name) = LOWER(?)",
+        (name.strip(),),
+    ).fetchone()
+    if row is None:
+        return None
+    d = dict(row)
+    d["fraud_flags"] = json.loads(d.get("fraud_flags") or "[]")
+    return d
+
+
 def format_account_details(customer: dict, transactions: list[dict]) -> str:
     """Format customer account details and transactions into a readable string."""
     if not customer:
