@@ -3,7 +3,10 @@
 
 import os
 import base64
+from pathlib import Path
+
 import streamlit as st
+import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -111,6 +114,15 @@ def init_db():
     return conn
 
 
+def get_browser_bridge_component():
+    """Return the browser-side component used for the API key and chat requests."""
+    component_dir = Path(__file__).resolve().parent / "client"
+    return components.declare_component(
+        "neobank_aria_browser_bridge",
+        path=str(component_dir),
+    )
+
+
 # ═══════════════════════════════════════════
 #  ATTACK HINTS DATA (ordered by difficulty)
 # ═══════════════════════════════════════════
@@ -214,18 +226,22 @@ def render_sidebar():
         st.markdown("### 🏦 NeoBank ARIA")
 
         # ── API Key ──
-        env_key = os.getenv("OPENAI_API_KEY", "")
-        api_key = st.text_input(
-            "OpenAI API Key",
-            value=env_key,
-            type="password",
+        browser_bridge = get_browser_bridge_component()
+        key_state = browser_bridge(
+            mode="key",
+            label="OpenAI API Key",
             placeholder="sk-...",
-            help="Enter your OpenAI API key. It stays in your browser session only.",
+            help_text="Enter your OpenAI API key. It stays in your browser session only.",
+            default={"has_key": False},
+            key="openai_api_key_bridge",
         )
-        if api_key:
-            st.session_state.api_key = api_key
-        elif "api_key" not in st.session_state:
-            st.session_state.api_key = ""
+        if key_state:
+            if key_state.get("has_key") and key_state.get("api_key"):
+                st.session_state.api_key = key_state["api_key"]
+            elif not key_state.get("has_key"):
+                st.session_state.api_key = ""
+
+        st.session_state.browser_api_key_ready = bool(st.session_state.get("api_key"))
 
         st.divider()
 
@@ -264,7 +280,15 @@ def render_sidebar():
             col_logout, col_clear = st.columns(2)
             with col_logout:
                 if st.button("🚪 Logout", use_container_width=True):
-                    for key in ["logged_in", "user_name", "user_id", "account_tier", "messages"]:
+                    for key in [
+                        "logged_in",
+                        "user_name",
+                        "user_id",
+                        "account_tier",
+                        "messages",
+                        "api_key",
+                        "browser_api_key_ready",
+                    ]:
                         st.session_state.pop(key, None)
                     st.rerun()
             with col_clear:
@@ -394,8 +418,8 @@ def render_chat(conn):
                     )
                 except Exception as e:
                     response = (
-                        f"I apologize, but I'm experiencing a technical issue. "
-                        f"Please try again.\n\n_Error: {str(e)}_"
+                        "I apologize, but I'm experiencing a technical issue. "
+                        f"Please try again.\n\n_Error: {e}_"
                     )
 
             st.markdown(response)
