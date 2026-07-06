@@ -5,7 +5,6 @@
   const root = document.getElementById("root") || document.body;
   const state = {
     lastHasKey: null,
-    lastApiKey: null,
     pendingRequests: new Map(),
     resizeObserver: null,
   };
@@ -56,9 +55,17 @@
 
   function readStoredValue() {
     try {
-      return window.localStorage.getItem(API_KEY_STORAGE_KEY) || "";
+      return (
+        window.parent.localStorage.getItem(API_KEY_STORAGE_KEY) ||
+        window.localStorage.getItem(API_KEY_STORAGE_KEY) ||
+        ""
+      );
     } catch {
-      return "";
+      try {
+        return window.localStorage.getItem(API_KEY_STORAGE_KEY) || "";
+      } catch {
+        return "";
+      }
     }
   }
 
@@ -66,11 +73,21 @@
     try {
       if (value) {
         window.localStorage.setItem(API_KEY_STORAGE_KEY, value);
+        window.parent.localStorage.setItem(API_KEY_STORAGE_KEY, value);
       } else {
         window.localStorage.removeItem(API_KEY_STORAGE_KEY);
+        window.parent.localStorage.removeItem(API_KEY_STORAGE_KEY);
       }
     } catch {
-      // Ignore storage failures; the app will simply behave as if no key was saved.
+      try {
+        if (value) {
+          window.localStorage.setItem(API_KEY_STORAGE_KEY, value);
+        } else {
+          window.localStorage.removeItem(API_KEY_STORAGE_KEY);
+        }
+      } catch {
+        // Ignore storage failures; the app will simply behave as if no key was saved.
+      }
     }
   }
 
@@ -100,15 +117,12 @@
 
   function reportKeyState(value) {
     const hasKey = looksLikeApiKey(value);
-    const apiKey = hasKey ? value : "";
-    if (state.lastHasKey === hasKey && state.lastApiKey === apiKey) {
+    if (state.lastHasKey === hasKey) {
       return;
     }
     state.lastHasKey = hasKey;
-    state.lastApiKey = apiKey;
     setComponentValue({
       has_key: hasKey,
-      api_key: apiKey,
     });
   }
 
@@ -184,6 +198,9 @@
     });
 
     const savedValue = readStoredValue();
+    if (looksLikeApiKey(savedValue)) {
+      writeStoredValue(savedValue);
+    }
     status.textContent = looksLikeApiKey(savedValue)
       ? "Saved locally in this browser."
       : savedValue
@@ -203,6 +220,7 @@
     if (updateFrameHeight) {
       setFrameHeight();
     }
+    startChatRequest(args);
   }
 
   async function fetchAssistantResponse(args, requestId) {
@@ -263,37 +281,36 @@
     return data?.choices?.[0]?.message?.content || "";
   }
 
-  function renderChatMode(args) {
-    clearRoot();
-
+  function startChatRequest(args) {
     const requestId = String(args.request_id || "");
     if (!requestId) {
-      setFrameHeight(1);
       return;
     }
 
     const cached = readCachedResponse(requestId);
     if (cached) {
+      cached.status = cached.error ? "error" : "complete";
       setComponentValue(cached);
-      setFrameHeight(1);
       return;
     }
 
     if (state.pendingRequests.has(requestId)) {
-      setFrameHeight(1);
       return;
     }
 
-    const status = document.createElement("div");
-    status.textContent = "ARIA is thinking...";
-    status.style.display = "none";
-    root.appendChild(status);
-    setFrameHeight(1);
+    setComponentValue({
+      has_key: looksLikeApiKey(readStoredValue()),
+      request_id: requestId,
+      status: "started",
+      response: "",
+      error: null,
+    });
 
     const pending = fetchAssistantResponse(args, requestId)
       .then((responseText) => {
         const payload = {
           request_id: requestId,
+          status: "complete",
           response: responseText,
           error: null,
         };
@@ -303,6 +320,7 @@
       .catch((error) => {
         const payload = {
           request_id: requestId,
+          status: "error",
           response: "",
           error: error instanceof Error ? error.message : String(error),
         };
@@ -314,6 +332,12 @@
       });
 
     state.pendingRequests.set(requestId, pending);
+  }
+
+  function renderChatMode(args) {
+    clearRoot();
+    setFrameHeight(1);
+    startChatRequest(args);
   }
 
   function renderComponent(args) {
@@ -333,7 +357,7 @@
 
   window.addEventListener("message", (event) => {
     const data = event.data;
-    if (!data || !data.isStreamlitMessage || data.type !== "streamlit:render") {
+    if (!data || data.type !== "streamlit:render") {
       return;
     }
 

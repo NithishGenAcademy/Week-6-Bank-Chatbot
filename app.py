@@ -4,6 +4,7 @@
 import os
 import base64
 from pathlib import Path
+import uuid
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -12,7 +13,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from database import get_connection, init_database, authenticate_by_name
-from agent import create_aria_agent, invoke_agent
+from agent import SYSTEM_PROMPT_TEMPLATE
 
 # ── Page config ──
 st.set_page_config(
@@ -114,11 +115,20 @@ def init_db():
     return conn
 
 
-def get_browser_bridge_component():
-    """Return the browser-side component used for the API key and chat requests."""
+def get_browser_key_component():
+    """Return the browser-side component used for API key entry."""
     component_dir = Path(__file__).resolve().parent / "client"
     return components.declare_component(
-        "neobank_aria_browser_bridge",
+        "neobank_aria_key_bridge",
+        path=str(component_dir),
+    )
+
+
+def get_browser_chat_component():
+    """Return the browser-side component used for browser-only chat requests."""
+    component_dir = Path(__file__).resolve().parent / "client_chat"
+    return components.declare_component(
+        "neobank_aria_chat_bridge",
         path=str(component_dir),
     )
 
@@ -226,7 +236,7 @@ def render_sidebar():
         st.markdown("### 🏦 NeoBank ARIA")
 
         # ── API Key ──
-        browser_bridge = get_browser_bridge_component()
+        browser_bridge = get_browser_key_component()
         key_state = browser_bridge(
             mode="key",
             label="OpenAI API Key",
@@ -235,13 +245,11 @@ def render_sidebar():
             default={"has_key": False},
             key="openai_api_key_bridge",
         )
-        if key_state:
-            if key_state.get("has_key") and key_state.get("api_key"):
-                st.session_state.api_key = key_state["api_key"]
-            elif not key_state.get("has_key"):
-                st.session_state.api_key = ""
-
-        st.session_state.browser_api_key_ready = bool(st.session_state.get("api_key"))
+        if key_state and "has_key" in key_state:
+            st.session_state.browser_api_key_ready = bool(
+                key_state.get("has_key")
+                or st.session_state.get("browser_api_key_ready")
+            )
 
         st.divider()
 
@@ -286,8 +294,12 @@ def render_sidebar():
                         "user_id",
                         "account_tier",
                         "messages",
-                        "api_key",
                         "browser_api_key_ready",
+                        "pending_turn",
+                        "pending_response",
+                        "bridge_request_status",
+                        "chat_turn_counter",
+                        "bridge_session_nonce",
                     ]:
                         st.session_state.pop(key, None)
                     st.rerun()
@@ -369,9 +381,29 @@ def render_login(conn):
 
 def render_chat(conn):
     """Render the main chat interface."""
-    if not st.session_state.get("api_key"):
+    if not st.session_state.get("browser_api_key_ready"):
         st.warning("⬅️ Please enter your OpenAI API key in the sidebar to start chatting.")
         return
+
+    pending_turn = st.session_state.get("pending_turn")
+    pending_response = st.session_state.get("pending_response")
+    if (
+        pending_turn
+        and pending_response
+        and pending_response.get("request_id") == pending_turn["request_id"]
+    ):
+        if pending_response.get("error"):
+            response = (
+                "I apologize, but I'm experiencing a technical issue. "
+                f"Please try again.\n\n_Error: {pending_response['error']}_"
+            )
+        else:
+            response = pending_response.get("response", "")
+
+        st.session_state.messages.append({"role": "assistant", "content": response})
+        st.session_state.pop("pending_turn", None)
+        st.session_state.pop("pending_response", None)
+        st.session_state.pop("bridge_request_status", None)
 
     st.markdown(
         f"""
@@ -398,34 +430,55 @@ def render_chat(conn):
             st.markdown(welcome)
 
     if prompt := st.chat_input("Message ARIA..."):
+        if "bridge_session_nonce" not in st.session_state:
+            st.session_state.bridge_session_nonce = uuid.uuid4().hex
+        turn_id = st.session_state.get("chat_turn_counter", 0) + 1
+        st.session_state.chat_turn_counter = turn_id
+        request_id = f"{st.session_state.bridge_session_nonce}:{turn_id}"
         st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user", avatar="👤"):
-            st.markdown(prompt)
+        st.session_state.pending_turn = {
+            "id": turn_id,
+            "request_id": request_id,
+            "prompt": prompt,
+        }
+        st.rerun()
+
+    pending_turn = st.session_state.get("pending_turn")
+    if pending_turn:
+        response_state = get_browser_chat_component()(
+            mode="chat",
+            request_id=pending_turn["request_id"],
+            user_message=pending_turn["prompt"],
+            chat_history=st.session_state.messages[:-1],
+            system_prompt=SYSTEM_PROMPT_TEMPLATE.format(
+                user_id=st.session_state.user_id,
+                account_tier=st.session_state.account_tier,
+            ),
+            model="gpt-3.5-turbo",
+            temperature=0.3,
+            max_tokens=2048,
+            default={
+                "request_id": pending_turn["request_id"],
+                "status": "queued",
+                "response": "",
+                "error": None,
+            },
+            key=f"openai_chat_bridge_{pending_turn['request_id']}",
+        )
+        if response_state and response_state.get("request_id") == pending_turn["request_id"]:
+            st.session_state.bridge_request_status = response_state.get("status", "received")
+            if response_state.get("status") in {"complete", "error"}:
+                st.session_state.pending_response = response_state
+                st.rerun()
+        elif response_state:
+            st.session_state.bridge_request_status = (
+                f"{response_state.get('status', 'received')} "
+                f"for {response_state.get('request_id', 'no-id')}"
+            )
 
         with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("ARIA is thinking..."):
-                try:
-                    agent = create_aria_agent(
-                        conn=conn,
-                        user_id=st.session_state.user_id,
-                        account_tier=st.session_state.account_tier,
-                        api_key=st.session_state.api_key,
-                    )
-                    response = invoke_agent(
-                        agent_components=agent,
-                        user_message=prompt,
-                        chat_history=st.session_state.messages[:-1],
-                    )
-                except Exception as e:
-                    response = (
-                        "I apologize, but I'm experiencing a technical issue. "
-                        f"Please try again.\n\n_Error: {e}_"
-                    )
-
-            st.markdown(response)
-
-        st.session_state.messages.append({"role": "assistant", "content": response})
-        st.rerun()
+            status = st.session_state.get("bridge_request_status", "queued")
+            st.markdown(f"ARIA is thinking... ({status})")
 
 
 # ═══════════════════════════════════════════
