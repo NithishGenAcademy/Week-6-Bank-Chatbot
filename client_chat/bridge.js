@@ -70,6 +70,107 @@
     }
   }
 
+  function formatAccountDetails(customer, transactions) {
+    if (!customer) {
+      return "Account not found.";
+    }
+
+    const lines = [
+      `Account Details for ${customer.name}`,
+      `  User ID: ${customer.user_id}`,
+      `  Tier: ${customer.tier}`,
+      `  Balance: $${Number(customer.balance || 0).toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`,
+      `  Status: ${customer.status}`,
+      `  Email: ${customer.email}`,
+      `  Phone: ${customer.phone}`,
+      `  Account Opened: ${customer.account_opened}`,
+      `  KYC Status: ${customer.kyc_status}`,
+    ];
+
+    if (Array.isArray(customer.fraud_flags) && customer.fraud_flags.length) {
+      lines.push(`  Fraud Flags: ${customer.fraud_flags.join(", ")}`);
+    }
+
+    if (transactions.length) {
+      lines.push("\nRecent Transactions:");
+      for (const txn of transactions) {
+        const amount = txn.amount
+          ? `$${Number(txn.amount).toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}`
+          : "-";
+        const desc = txn.description || "";
+        const detail = txn.recipient ? `${txn.recipient} (${desc})` : desc;
+        lines.push(
+          `  [${txn.date}] ${txn.type} | ${amount} | ${detail} | ${txn.status}`
+        );
+      }
+    }
+
+    return lines.join("\n");
+  }
+
+  function executeToolCall(toolCall, toolData) {
+    const name = toolCall?.function?.name || "";
+    let args = {};
+    try {
+      args = JSON.parse(toolCall?.function?.arguments || "{}");
+    } catch {
+      args = {};
+    }
+
+    if (name === "lookup_policy") {
+      const topic = String(args.topic || "").trim().toLowerCase();
+      const knowledgeBase = toolData?.knowledge_base || {};
+      if (knowledgeBase[topic]) {
+        return String(knowledgeBase[topic]);
+      }
+      return `No policy found for topic: '${topic}'. Available topics are: ${Object.keys(
+        knowledgeBase
+      ).join(", ")}`;
+    }
+
+    if (name === "query_account") {
+      const userId = String(args.user_id || "").trim();
+      const customers = Array.isArray(toolData?.customers) ? toolData.customers : [];
+      const transactions = Array.isArray(toolData?.transactions)
+        ? toolData.transactions
+        : [];
+      const customer = customers.find((item) => item.user_id === userId);
+      if (!customer) {
+        return `Account not found for user_id: ${userId}`;
+      }
+      return formatAccountDetails(
+        customer,
+        transactions.filter((txn) => txn.user_id === userId)
+      );
+    }
+
+    return `Unknown tool: ${name}`;
+  }
+
+  async function callOpenAI(apiKey, requestBody) {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data?.error?.message || `OpenAI request failed with HTTP ${response.status}`);
+    }
+
+    return data;
+  }
+
   async function fetchAssistantResponse(args, requestId) {
     const apiKey = readStoredValue();
     if (!looksLikeApiKey(apiKey)) {
@@ -97,26 +198,86 @@
       messages.push({ role: "user", content: args.user_message });
     }
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
+    const model = args.model || "gpt-3.5-turbo";
+    const temperature = typeof args.temperature === "number" ? args.temperature : 0.3;
+    const maxTokens = typeof args.max_tokens === "number" ? args.max_tokens : 2048;
+    const tools = [
+      {
+        type: "function",
+        function: {
+          name: "lookup_policy",
+          description: "Look up a specific NeoBank policy by topic name.",
+          parameters: {
+            type: "object",
+            properties: {
+              topic: {
+                type: "string",
+                description:
+                  "One of: transfer_limits, dispute_process, card_management, fraud_detection, account_verification, internal_reference_only.",
+              },
+            },
+            required: ["topic"],
+          },
+        },
       },
-      body: JSON.stringify({
-        model: args.model || "gpt-3.5-turbo",
-        temperature: typeof args.temperature === "number" ? args.temperature : 0.3,
-        max_tokens: typeof args.max_tokens === "number" ? args.max_tokens : 2048,
-        messages,
-      }),
+      {
+        type: "function",
+        function: {
+          name: "query_account",
+          description:
+            "Look up account details and transactions for a user ID. Example user_id: USR-0042.",
+          parameters: {
+            type: "object",
+            properties: {
+              user_id: {
+                type: "string",
+                description: "NeoBank customer user ID.",
+              },
+            },
+            required: ["user_id"],
+          },
+        },
+      },
+    ];
+
+    const firstData = await callOpenAI(apiKey, {
+      model,
+      temperature,
+      max_tokens: maxTokens,
+      messages,
+      tools,
+      tool_choice: "auto",
     });
 
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data?.error?.message || `OpenAI request failed with HTTP ${response.status}`);
+    const assistantMessage = firstData?.choices?.[0]?.message;
+    const toolCalls = assistantMessage?.tool_calls || [];
+    if (!toolCalls.length) {
+      return assistantMessage?.content || "";
     }
 
-    return data?.choices?.[0]?.message?.content || "";
+    const toolMessages = toolCalls.map((toolCall) => ({
+      role: "tool",
+      tool_call_id: toolCall.id,
+      name: toolCall?.function?.name || "",
+      content: executeToolCall(toolCall, args.tool_data || {}),
+    }));
+
+    const finalData = await callOpenAI(apiKey, {
+      model,
+      temperature,
+      max_tokens: maxTokens,
+      messages: [
+        ...messages,
+        {
+          role: "assistant",
+          content: assistantMessage.content || null,
+          tool_calls: toolCalls,
+        },
+        ...toolMessages,
+      ],
+    });
+
+    return finalData?.choices?.[0]?.message?.content || "";
   }
 
   function startChatRequest(args) {

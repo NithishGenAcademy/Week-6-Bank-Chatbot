@@ -5,6 +5,7 @@ import os
 import base64
 from pathlib import Path
 import uuid
+import json
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -14,6 +15,7 @@ load_dotenv()
 
 from database import get_connection, init_database, authenticate_by_name
 from agent import SYSTEM_PROMPT_TEMPLATE
+from knowledge_base import KNOWLEDGE_BASE
 
 # ── Page config ──
 st.set_page_config(
@@ -131,6 +133,33 @@ def get_browser_chat_component():
         "neobank_aria_chat_bridge",
         path=str(component_dir),
     )
+
+
+def get_browser_tool_data(conn):
+    """Return the intentionally vulnerable tool data for browser-side execution."""
+    customers = []
+    for row in conn.execute("SELECT * FROM customers").fetchall():
+        customer = dict(row)
+        fraud_flags = customer.get("fraud_flags")
+        if isinstance(fraud_flags, str):
+            try:
+                customer["fraud_flags"] = json.loads(fraud_flags or "[]")
+            except Exception:
+                customer["fraud_flags"] = []
+        customers.append(customer)
+
+    transactions = [
+        dict(row)
+        for row in conn.execute(
+            "SELECT * FROM transactions ORDER BY date DESC"
+        ).fetchall()
+    ]
+
+    return {
+        "knowledge_base": KNOWLEDGE_BASE,
+        "customers": customers,
+        "transactions": transactions,
+    }
 
 
 # ═══════════════════════════════════════════
@@ -457,6 +486,7 @@ def render_chat(conn):
             model="gpt-3.5-turbo",
             temperature=0.3,
             max_tokens=2048,
+            tool_data=get_browser_tool_data(conn),
             default={
                 "request_id": pending_turn["request_id"],
                 "status": "queued",
